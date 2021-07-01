@@ -151,7 +151,7 @@ def benchmark_transformer_one_case(benchmark_case, use_profiling):
     heads = ["Type", "Case", "Mesh Shape", "Peak Mem", "Objective", "Mean Time", "Std Time"]
     values = ["transformer-layer", str(benchmark_case[:-2]), str(benchmark_case[-2:]),
              f"{real_mem/GB:.3f}", f"{objective:.2f}",
-             f"{np.mean(costs):.2f}", f"{np.std(costs):.2f}"]
+             f"{np.mean(costs):.3f}", f"{np.std(costs):.3f}"]
     write_tsv(heads, values, "result_trans.tsv")
 
     physical_mesh.shutdown()

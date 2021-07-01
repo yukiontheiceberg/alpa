@@ -126,7 +126,7 @@ def benchmark_mlp_one_case(benchmark_case, use_profiling):
     # Log benchmark results
     heads = ["Case", "PeakMem", "Objective", "Mean Time", "Std Time"]
     values = [str(benchmark_case), f"{real_mem/GB:.2f}", f"{objective:.2f}",
-             f"{np.mean(costs):.2f}", f"{np.std(costs):.2f}"]
+             f"{np.mean(costs):.3f}", f"{np.std(costs):.3f}"]
     write_tsv(heads, values, "result_mlp.tsv")
 
     physical_mesh.shutdown()
@@ -134,8 +134,8 @@ def benchmark_mlp_one_case(benchmark_case, use_profiling):
 
 benchmark_suite = [
     # Batch size, seq_len, hidden size, num_layers, dp_size, tensor_mp_size,
-    (16,          1024,    2304,        4,          4,       1),
-    (16,          1024,    2304,        4,          2,       2),
+    (32,          1024,    2304,        4,          4,       1),
+    (32,          1024,    2304,        4,          2,       2),
 
     # Batch size, seq_len, hidden size, num_layers, dp_size, tensor_mp_size,
     (8,           256,     5760,        4,          4,       1),
