@@ -12,7 +12,8 @@ import numpy as np
 from flax import optim
 
 from parax import parallelize, set_parallelize_options, testing, PhysicalDeviceMesh
-from parax.model.bert_model import BertConfig, FlaxBertAttention, FlaxBertLayerCollection
+from parax.model.bert_model import (BertConfig, FlaxBertAttention, FlaxBertLayerCollection,
+                                    FlaxBertForMaskedLMModule, onehot)
 from test_auto_sharding_mlp import (assert_close, assert_all_replicated,
                                     assert_column_partitioned,
                                     assert_only_has_allreduce,
@@ -119,6 +120,63 @@ class AutoShardingAttentionTest(unittest.TestCase):
         hlo_ir = hlo_module.to_string()
 
         return optimizer, hlo_ir, testing.last_compiled_auto_sharding_objective
+
+    def run_bert_mlm(self, num_layers, batch_size, seq_len, hidden_size,
+                     num_heads, vocab_size, deterministic, device_mesh):
+        set_parallelize_options(devices=device_mesh)
+
+        input_ids = jnp.ones((batch_size, seq_len), dtype=jnp.int32)
+        attention_mask = jnp.ones((batch_size, seq_len), dtype=jnp.int32)
+        token_type_ids = jnp.ones((batch_size, seq_len), dtype=jnp.int32)
+        position_ids = jnp.ones((batch_size, seq_len), dtype=jnp.int32)
+        labels = jnp.ones((batch_size, seq_len), dtype=jnp.int32)
+
+        # Init model and optimizer
+        model = FlaxBertForMaskedLMModule(BertConfig(
+            vocab_size=vocab_size,
+            hidden_size=hidden_size,
+            num_attention_heads=num_heads,
+            intermediate_size=hidden_size * 4,
+            num_hidden_layers=num_layers,
+        ))
+        rngkey = jax.random.PRNGKey(0)
+        params = model.init(rngkey, input_ids, attention_mask, token_type_ids, position_ids)
+        optimizer = optim.GradientDescent(1e-2).create(params)
+
+        @parallelize
+        def train_step(optimizer, batch):
+            def loss_func(params):
+                rngs = {"dropout": batch["rng"]}
+                logits = model.apply(params,
+                                     batch["input_ids"],
+                                     batch["attention_mask"],
+                                     batch["token_type_ids"],
+                                     batch["position_ids"],
+                                     rngs=rngs)[0]
+                label_mask = jnp.where(batch["labels"] > 0, 1.0, 0.0)
+                labels = onehot(batch["labels"], logits.shape[-1])
+                loss = -jnp.sum(labels * jax.nn.log_softmax(logits, axis=-1), axis=-1)
+                return (label_mask * loss).sum() / label_mask.sum()
+
+            grad = jax.grad(loss_func)(optimizer.target)
+            new_optimizer = optimizer.apply_gradient(grad)
+            return new_optimizer
+
+        # JIT compile
+        optimizer = train_step(optimizer,
+                               {"input_ids": input_ids,
+                                "attention_mask": attention_mask,
+                                "token_type_ids": token_type_ids,
+                                "position_ids": position_ids,
+                                "labels": labels,
+                                "rng": rngkey})
+
+        # Get optimized HLO IR
+        hlo_module = testing.last_compiled_executable.hlo_modules()[0]
+        hlo_ir = hlo_module.to_string()
+
+        return optimizer, hlo_ir, testing.last_compiled_auto_sharding_objective
+
 
     def test_attention_data_parallel(self):
         batch_size = 32
@@ -306,15 +364,34 @@ class AutoShardingAttentionTest(unittest.TestCase):
                 else:
                     assert_replicated_row_partitioned(weights[j], mesh_shape)
 
+    def test_bert_mlm_data_parallel(self):
+        batch_size = 64
+        seq_len = 64
+        hidden_size = 128
+        num_heads = 4
+        num_layers = 0
+        vocab_size = 1024
+        deterministic = True
+
+        # Test on different device meshes
+        mesh_shape = [2, 2]
+        device_mesh = self.get_device_mesh(mesh_shape, [1, 1], [1, 0.01])
+        optimizer, hlo_ir, objective = self.run_bert_mlm(
+            num_layers, batch_size, seq_len, hidden_size,
+            num_heads, vocab_size, deterministic, device_mesh)
+
+
 def suite():
     suite = unittest.TestSuite()
-    suite.addTest(AutoShardingAttentionTest("test_attention_data_parallel"))
-    suite.addTest(AutoShardingAttentionTest("test_attention_model_parallel"))
-    suite.addTest(AutoShardingAttentionTest("test_attention_2d_mesh"))
+    #suite.addTest(AutoShardingAttentionTest("test_attention_data_parallel"))
+    #suite.addTest(AutoShardingAttentionTest("test_attention_model_parallel"))
+    #suite.addTest(AutoShardingAttentionTest("test_attention_2d_mesh"))
 
-    suite.addTest(AutoShardingAttentionTest("test_bert_layer_data_parallel"))
-    suite.addTest(AutoShardingAttentionTest("test_bert_layer_model_parallel"))
-    suite.addTest(AutoShardingAttentionTest("test_bert_layer_2d_mesh"))
+    #suite.addTest(AutoShardingAttentionTest("test_bert_layer_data_parallel"))
+    #suite.addTest(AutoShardingAttentionTest("test_bert_layer_model_parallel"))
+    #suite.addTest(AutoShardingAttentionTest("test_bert_layer_2d_mesh"))
+
+    suite.addTest(AutoShardingAttentionTest("test_bert_mlm_data_parallel"))
 
     return suite
 
