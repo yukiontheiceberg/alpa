@@ -31,7 +31,8 @@ class SPMDPartitionerTest(unittest.TestCase):
         pjit_p.def_impl(_pjit_call_impl)
 
     def run_gather_2d(self, vocab_size, hidden_size, batch_size, seq_len,
-                      mesh_shape, embedding_spec, indices_spec, output_spec):
+                      mesh_shape, mesh_mapping,
+                      embedding_spec, indices_spec, output_spec):
         def func(embedding, indices):
           ret = jnp.take(embedding, indices, axis=0)
           return ret
@@ -46,16 +47,19 @@ class SPMDPartitionerTest(unittest.TestCase):
         indices = np.random.randint(0, vocab_size, (batch_size, seq_len), np.int32)
 
         mesh_devices = np.array(jax.devices()[:np.prod(mesh_shape)]).reshape(mesh_shape)
-        with mesh(mesh_devices, ('x', 'y')):
+        with mesh(mesh_devices, (mesh_mapping)):
             actual = parallel_func(embedding, indices)
 
         expected = func(embedding, indices)
+
+        #print(self.hlo_module.to_string())
+
         assert_allclose(np.array(actual), np.array(expected))
 
     def test_gather_2d_partition_SR_RS_SS(self):
         # 2d partition, indices x operand = output (S,R x R,S = S,S)
-        vocab_size = 256
-        hidden_size = 64
+        vocab_size = 512
+        hidden_size = 32
         batch_size = 8
         seq_len = 16
 
@@ -63,30 +67,61 @@ class SPMDPartitionerTest(unittest.TestCase):
         indices_spec = P('x', None)
         output_spec= P('x', None, 'y')
         for mesh_shape in [(2, 2), (1, 4), (4, 1)]:
-            self.run_gather_2d(vocab_size, hidden_size, batch_size, seq_len,
-                               mesh_shape, embedding_spec, indices_spec, output_spec)
-            assert "channel_id" not in self.hlo_module.to_string()
+            for mesh_mapping in [('x', 'y'), ('y', 'x')]:
+                self.run_gather_2d(vocab_size, hidden_size, batch_size, seq_len,
+                                   mesh_shape, mesh_mapping,
+                                   embedding_spec, indices_spec, output_spec)
+                # No communication is required
+                assert "channel_id" not in self.hlo_module.to_string()
+                return
 
     def test_gather_2d_partition_SS_SR_SR(self):
         # 2d partition, indices x operand = output (S,S x S,R = S,R)
-        vocab_size = 256
-        hidden_size = 64
+        vocab_size = 512
+        hidden_size = 32
         batch_size = 8
         seq_len = 16
 
-        mesh_shape = (2, 2)
         embedding_spec = P('y', None)
         indices_spec = P('x', None)
         output_spec= P('x', None, None)
-        self.run_gather_2d(vocab_size, hidden_size, batch_size, seq_len,
-                           mesh_shape, embedding_spec, indices_spec, output_spec)
+        for mesh_shape in [(2, 2), (1, 4), (4, 1)]:
+            for mesh_mapping in [('x', 'y'), ('y', 'x')]:
+                self.run_gather_2d(vocab_size, hidden_size, batch_size, seq_len,
+                                   mesh_shape, mesh_mapping,
+                                   embedding_spec, indices_spec, output_spec)
+                hlo_ir = self.hlo_module.to_string()
+                if "channel_id" in hlo_ir:
+                    # Can have at most one all-reduce
+                    assert hlo_ir.count("channel_id") == 1
+                    assert hlo_ir.count("all-reduce(") == 1
 
-        print(self.hlo_module.to_string())
+    @unittest.skip("Not implemented. This functionality is a todo item.")
+    def test_gather_2d_partition_RS_SS_RS(self):
+        # 2d partition, indices x operand = output (R,S x S,S = R,S)
+        vocab_size = 512
+        hidden_size = 32
+        batch_size = 8
+        seq_len = 16
+
+        embedding_spec = P('x', 'y')
+        indices_spec = P(None, None)
+        output_spec= P(None, None, 'y')
+        for mesh_shape in [(2, 2)]:
+            for mesh_mapping in [('x', 'y')]:
+                self.run_gather_2d(vocab_size, hidden_size, batch_size, seq_len,
+                                   mesh_shape, mesh_mapping,
+                                   embedding_spec, indices_spec, output_spec)
+                hlo_ir = self.hlo_module.to_string()
+                if "channel_id" in hlo_ir:
+                    # Can have at most one all-reduce
+                    assert hlo_ir.count("channel_id") == 1
+                    assert hlo_ir.count("all-reduce(") == 1
 
 
 def suite():
     suite = unittest.TestSuite()
-    #suite.addTest(SPMDPartitionerTest("test_gather_2d_partition_SR_RS_SS"))
+    suite.addTest(SPMDPartitionerTest("test_gather_2d_partition_SR_RS_SS"))
     suite.addTest(SPMDPartitionerTest("test_gather_2d_partition_SS_SR_SR"))
 
     return suite
