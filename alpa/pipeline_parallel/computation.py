@@ -158,8 +158,9 @@ class XlaPipelineComputation(PipelineComputation):
     def get_runnable(self, mesh=None):
         """Return a callable of the pipeline computation."""
         out_avals = [var.aval for var in self.outvars]
-        tuple_args = False
-        backend = xb.get_backend("gpu")
+        tuple_args = len(
+            self.invars) > 100  # pass long arg lists as tuple for TPU
+        backend = xb.get_backend(global_config.backend)
         device = backend.get_default_device_assignment(1)[0]
         options = get_compile_options(
             num_replicas=1,
@@ -217,10 +218,11 @@ class XlaShardedPipelineComputation(PipelineComputation):
     @classmethod
     def dummy_computation(cls, name, logical_mesh_shape, gensym_func):
         """Create a dummy computation."""
+        backend = xb.get_backend(global_config.backend)
         stage_plan = StagePlan(global_config.compile_random_seed,
                                logical_mesh_shape, 1, 1, AutoShardingOption(),
                                None, 0)
-        compiled = compile_dummy_zero_constant(xb.get_backend("gpu"),
+        compiled = compile_dummy_zero_constant(backend,
                                                np.prod(logical_mesh_shape))
         sharding_annotated_module = compiled.hlo_modules()[0]
         outvar = gensym_func(ShapedArray((), np.dtype(np.int32)))

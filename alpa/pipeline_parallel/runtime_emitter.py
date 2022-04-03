@@ -812,7 +812,7 @@ class PipelineInstEmitter:
                 # create and run concat executable
                 exec_uuid = next_mesh_executable_uuid()
                 spec = to_concate_specs[mesh_idx][src_var]
-                hlo_proto = compile_concatenate(xb.get_backend("gpu"),
+                hlo_proto = compile_concatenate(xb.get_backend(global_config.backend),
                                                 physical_mesh.shape, spec,
                                                 self.num_batch, batch_dim,
                                                 src_var.aval)

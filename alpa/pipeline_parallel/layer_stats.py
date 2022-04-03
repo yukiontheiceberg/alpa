@@ -4,6 +4,8 @@ from typing import List, Set
 from jax import lax
 from jax.lib import xla_client as xc, xla_bridge as xb
 from jax.core import JaxprEqn, Var, CallPrimitive, DropVar, Literal, Jaxpr, ClosedJaxpr
+
+from alpa.global_env import global_config
 from alpa.util import OrderedSet, jaxpr_to_hlo_module
 
 
@@ -11,7 +13,7 @@ def eqn_flops(eqn: JaxprEqn) -> float:
     """Get the FLOP of a jaxpr equation."""
     jaxpr = Jaxpr([], eqn.invars, eqn.outvars, [eqn])
     closed_jaxpr = ClosedJaxpr(jaxpr, [])
-    backend = xb.get_backend("gpu")
+    backend = xb.get_backend(global_config.backend)
     if any(isinstance(x, Literal) for x in eqn.invars):
         # A temporary workaround
         return 0

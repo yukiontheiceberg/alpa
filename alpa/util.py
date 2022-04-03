@@ -349,7 +349,7 @@ def jaxpr_to_hlo_module(name: str,
     Reference code: jax/jax/_src/dispatch.py::lower_xla_callable
     """
     if backend is None:
-        backend = xb.get_backend("gpu")
+        backend = xb.get_backend(global_config.backend)
     consts = closed_jaxpr.consts
     map(dispatch.prefetch,
         it.chain(consts, dispatch.jaxpr_literals(closed_jaxpr.jaxpr)))
@@ -1048,7 +1048,7 @@ def run_cmd(cmd: str):
 
 
 def list_gpu_info():
-    """List all gpu information by calling nvidia-sim."""
+    """List all gpu information by calling nvidia-smi."""
     ret = subprocess.getoutput("nvidia-smi -L")
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", None)
     if visible_devices:
