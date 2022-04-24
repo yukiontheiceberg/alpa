@@ -9,6 +9,7 @@ from setuptools import setup, find_packages
 
 IS_WINDOWS = sys.platform == "win32"
 ROOT_DIR = os.path.dirname(__file__)
+IS_CUDA = False
 
 
 def get_cuda_version(cuda_home):
@@ -152,6 +153,8 @@ def move_file(target_dir, filename):
 
 
 def build_and_move(build_ext):
+    if not IS_CUDA:
+        return
     build()
     files_to_include = glob.glob(
         "alpa/pipeline_parallel/xla_custom_call_marker/build/*.so")
