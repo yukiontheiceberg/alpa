@@ -52,10 +52,13 @@ def mark_hook_jaxpreqn(invars, outvars):
 
 
 ########## Internal Registration ##########
-xc.register_custom_call_target(b"pipeline_marker",
-                               pipeline_marker(),
-                               platform=global_config.backend)
-xc.register_custom_call_target(b"identity", identity(), platform=global_config.backend)
+if global_config.has_cuda:
+    xc.register_custom_call_target(b"pipeline_marker",
+                                   pipeline_marker(),
+                                   platform=global_config.backend)
+    xc.register_custom_call_target(b"identity",
+                                   identity(),
+                                   platform=global_config.backend)
 
 
 def flatten_shape_byte_sizes(shape):
