@@ -20,7 +20,9 @@ benchmark_suites = {
     "gpt.tmp_auto": suite_auto_gpt.tmp_suite,
     "gpt.perf_test_manual": suite_manual_gpt.perf_test_suite,
     "gpt.perf_test_auto": suite_auto_gpt.perf_test_suite,
+    "gpt.perf_test_auto_40gb": suite_auto_gpt.perf_test_40gb_suite,
     "gpt.grid_search_auto": suite_auto_gpt.grid_search_suite,
+    "gpt.grid_search_auto_40gb": suite_auto_gpt.grid_search_40gb_suite,
     "gpt.correctness_test_auto": suite_auto_gpt.correctness_test_suite,
 
     "moe.tmp": suite_manual_moe.tmp_suite,

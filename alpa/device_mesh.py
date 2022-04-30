@@ -899,13 +899,15 @@ class DistributedPhysicalDeviceMesh(PhysicalDeviceMesh):
 
                 # "NCCL_LAUNCH_MODE": "PARALLEL",
                 # "XLA_FLAGS": "--xla_dump_to=hlo --xla_dump_hlo_pass_re=.*"
-                # "NCCL_DEBUG": "INFO" if i == 0 else "VERSION",
                 # "RAY_IGNORE_UNHANDLED_ERRORS": "True",
             }
 
             if "XLA_PYTHON_CLIENT_ALLOCATOR" in os.environ:
                 env_vars["XLA_PYTHON_CLIENT_ALLOCATOR"] = os.environ[
                     "XLA_PYTHON_CLIENT_ALLOCATOR"]
+
+            if "NCCL_DEBUG" in os.environ:
+                env_vars["NCCL_DEBUG"] = os.environ["NCCL_DEBUG"] if i == 0 else "VERSION"
 
             if global_config.use_aws_efa:
                 env_vars.update({

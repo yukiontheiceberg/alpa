@@ -99,6 +99,14 @@ perf_test_suite = {
 }),
 }
 
+perf_test_40gb_suite = {
+64: get_benchmark_cases("81B", [128], [8], "manual_gpipe", {
+    "forward_stage_layer_ids": [[0], [1], [2], [3], [4], [5], [6], [7]],
+    "sub_physical_mesh_shapes": [(1, 8)] * 8,
+    "sub_logical_mesh_shapes": [(2, 4)] * 8,
+    "submesh_autosharding_option_dicts": [{'force_batch_dim_to_mesh_dim': 0}] * 8
+}),
+}
 
 # Grid search on hyperparameters
 grid_search_suite = {
@@ -113,6 +121,14 @@ grid_search_suite = {
 64: get_benchmark_cases("39B", [128, 256, 512, 1024], [8]),
 }
 
+grid_search_40gb_suite = {
+2: get_benchmark_cases("1.3B", [32, 64, 128], [6, 12]),
+4: get_benchmark_cases("2.6B", [32, 64, 128, 256], [8, 12]),
+8: get_benchmark_cases("6.7B", [32, 64, 128, 256], [8, 16]),
+16: get_benchmark_cases("15B", [32, 64, 128, 256, 512], [8, 16, 24]),
+32: get_benchmark_cases("39B", [64, 128, 256, 512, 1024], [8, 16, 32]),
+64: get_benchmark_cases("81B", [128], [16]),
+}
 
 # Small test cases for correctness test
 correctness_test_suite = {

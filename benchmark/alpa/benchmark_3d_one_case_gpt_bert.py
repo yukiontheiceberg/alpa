@@ -273,6 +273,7 @@ def benchmark_gpt_bert_internal(model_type, benchmark_case, niter,
     for i in range(niter):
         print(f"Iteration {i}")
         state = train_step(state, batch, rngkey)
+        executable.sync()
 
     latencies = executable.get_execution_time_costs(warmup=1)
     print_used_time("Benchmark")
