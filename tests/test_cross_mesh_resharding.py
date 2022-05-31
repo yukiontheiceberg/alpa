@@ -310,14 +310,30 @@ class ReshardingTest(unittest.TestCase):
         self.run_resharding_task(src_shape, dst_shape, src_spec, dst_spec,
                                   tensor_shape, resharding_mode="broadcast")
 
+    def test_32gpu_broadcast(self):
+        src_shape = (2, 8)
+        dst_shape = (2, 8)
+        tensor_shape = (16, 2048, 4096)
+
+        src_spec = ShardingSpec([Chunked([2]), NoSharding(), NoSharding()], [ShardedAxis(0), Replicated(8)])
+        dst_spec = ShardingSpec([Chunked([2]), NoSharding(), NoSharding()], [ShardedAxis(0), Replicated(8)])
+        self.run_resharding_task(src_shape, dst_shape, src_spec, dst_spec,
+                                  tensor_shape, resharding_mode="broadcast")
+
+        src_spec = ShardingSpec([Chunked([16]), NoSharding(), NoSharding()], [ShardedAxis(0)])
+        dst_spec = ShardingSpec([Chunked([16]), NoSharding(), NoSharding()], [ShardedAxis(0)])
+        self.run_resharding_task(src_shape, dst_shape, src_spec, dst_spec,
+                                  tensor_shape, resharding_mode="broadcast")
+
 
 def suite():
     suite = unittest.TestSuite()
-    suite.addTest(ReshardingTest("test_4gpu_send_recv"))
-    suite.addTest(ReshardingTest("test_4gpu_allgather"))
-    suite.addTest(ReshardingTest("test_8gpu_2_dim_allgather"))
-    suite.addTest(ReshardingTest("test_4gpu_broadcast"))
-    suite.addTest(ReshardingTest("test_8gpu_broadcast"))
+    #suite.addTest(ReshardingTest("test_4gpu_send_recv"))
+    #suite.addTest(ReshardingTest("test_4gpu_allgather"))
+    #suite.addTest(ReshardingTest("test_8gpu_2_dim_allgather"))
+    #suite.addTest(ReshardingTest("test_4gpu_broadcast"))
+    #suite.addTest(ReshardingTest("test_8gpu_broadcast"))
+    suite.addTest(ReshardingTest("test_32gpu_broadcast"))
     return suite
 
 
