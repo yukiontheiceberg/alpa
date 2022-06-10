@@ -364,7 +364,7 @@ def run_auto_sharding_pass(
                            as_option, last_s_val, last_objective)
 
     if return_mode == "single":
-        return hlo_module, stage_plan
+        return (post_spmd_module, hlo_module), stage_plan
     elif return_mode == "stages":
         return hlo_stage_names, hlo_stages, stage_plan
     elif return_mode == "stages_and_hook":
