@@ -457,6 +457,9 @@ def run_backend_compilation(backend: xe.Client,
                 stage_plan.all_reduce_threshold,
             "combiner::use_continuous_buffer":
                 True,
+            "done-event::enable":
+                global_config.enable_overlapping,
+            # TODO(hexu): do I use it in a right way?
     }):
         compiled = backend.compile(xla_computation, compile_options)
 

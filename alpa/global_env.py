@@ -63,6 +63,7 @@ class GlobalConfig:
         # Which nccl to use. Possible choices: {"cupy",
         # "xla_extension"}
         self.nccl_mode = "cupy"
+        self.enable_overlapping = True
 
         ########## Options of XLA compilation ##########
         # Whether to use xla while instruction for preventing CSE in

@@ -22,6 +22,8 @@ from jax.interpreters import pxla
 from jax.tree_util import tree_flatten, tree_unflatten, tree_leaves, PyTreeDef
 import numpy as np
 import ray
+import util
+from alpa.util import XlaPassContext
 
 from alpa.device_mesh import (LocalPhysicalDeviceMesh,
                               DistributedPhysicalDeviceMesh, RemoteArrayRef,
@@ -144,6 +146,13 @@ class MeshWorkerExecutable(ABC):
     def get_total_allocation_size(self):
         """Get the total memory allocation size in bytes."""
         raise NotImplementedError()
+
+    # @staticmethod
+    # def synchronize_inputs_done_events(inputs_done_events, all_working_streams):
+    #     for events in inputs_done_events:
+    #         for working_streams in all_working_streams:
+    #             for event, stream in zip(events, working_streams):
+    #                 util.synchronize_event(event, stream)
 
 
 def next_mesh_executable_uuid():
@@ -451,6 +460,11 @@ class NormalMeshWorkerExecutable(MeshWorkerExecutable):
         # Sequence[Sequence[DeviceBuffer]], shape(num_args, num_devices)
         input_bufs = [buffer_dict[x] for x in input_uuids]
 
+        if global_config.enable_overlapping:
+            input_done_events = (
+                [self.worker.buffers_done_events[x] for x in input_uuids])
+            util.synchronize_inputs_done_events(
+                input_done_events, xe.fetch_working_streams(self.compiled))
         # Execute the executable
         timers(self.timer_name).start(self.sync_func if sync_before else None)
         try:
@@ -463,7 +477,18 @@ class NormalMeshWorkerExecutable(MeshWorkerExecutable):
         # Store output buffers
         for i in range(len(output_uuids)):
             buffer_dict[output_uuids[i]] = output_bufs[i]
-
+            done_events_avail_devices = xe.done_events_avail_devices(
+                i, self.worker.backend.local_device_count()
+            )
+            if global_config.enable_overlapping:
+                done_events = []
+                for device_id in range(self.worker.backend.local_device_count()):
+                    if device_id in done_events_avail_devices:
+                        done_events.append(xe.take_done_event(i, device_id))
+                    else:
+                        done_events.append(None)
+                self.worker.buffers_done_events[output_uuids[i]] = done_events
+                
         # Delete donated input buffers
         delete_donated_buffers(buffer_dict, input_uuids, self.donated_invars)
 
@@ -1114,6 +1139,17 @@ class AllocZeroBufferWorkerExecutable(MeshWorkerExecutable):
         timers(self.timer_name).stop(self.sync_func if sync_after else None)
         for i in range(len(output_uuids)):
             buffer_dict[output_uuids[i]] = output_bufs[i]
+            done_events_avail_devices = xe.done_events_avail_devices(
+                i, self.worker.backend.local_device_count()
+            )
+            if global_config.enable_overlapping:
+                done_events = []
+                for device_id in range(self.worker.backend.local_device_count()):
+                    if device_id in done_events_avail_devices:
+                        done_events.append(xe.take_done_event(i, device_id))
+                    else:
+                        done_events.append(None)
+                self.worker.buffers_done_events[output_uuids[i]] = done_events
 
     def __del__(self):
         self.allocate_zero_buffers.delete()
@@ -1140,6 +1176,8 @@ class MemzeroWorkerExecutable(MeshWorkerExecutable):
         """Run the executable on the worker."""
         # pylint: disable=unused-argument
         buffer_dict = self.worker.buffers
+
+        #TODO(hexu): add synchronization for inputs? Do we really need this?
 
         # Get input
         input_bufs = [buffer_dict[x] for x in input_uuids]
@@ -1172,7 +1210,11 @@ class UtilMeshWorkerExecutable(MeshWorkerExecutable):
             build_random_seed=global_config.compile_random_seed)
         xla_computation = xe.XlaComputation(hlo_proto)
 
-        self.exec = worker.backend.compile(xla_computation, compile_options)
+        with XlaPassContext({
+                "done-event::enable":
+                    global_config.enable_overlapping,
+        }):
+            self.exec = worker.backend.compile(xla_computation, compile_options)
 
         self.worker = worker
         self.timer_name = get_execution_timer_name(uuid)
@@ -1187,6 +1229,10 @@ class UtilMeshWorkerExecutable(MeshWorkerExecutable):
         # Get input
         input_bufs = [buffer_dict[x] for x in input_uuids]
 
+        if global_config.enable_overlapping:
+            inputs_done_events = [self.worker.buffers_done_events[x] for x in input_uuids]
+            util.synchronize_inputs_done_events(inputs_done_events, xe.fetch_working_streams(self.exec))
+
         # Execute
         timers(self.timer_name).start(self.sync_func if sync_before else None)
         output_bufs = self.exec.execute_sharded_on_local_devices(input_bufs)
@@ -1194,6 +1240,17 @@ class UtilMeshWorkerExecutable(MeshWorkerExecutable):
 
         for i in range(len(output_uuids)):
             buffer_dict[output_uuids[i]] = output_bufs[i]
+            done_events_avail_devices = xe.done_events_avail_devices(
+                i, self.worker.backend.local_device_count()
+            )
+            if global_config.enable_overlapping:
+                done_events = []
+                for device_id in range(self.worker.backend.local_device_count()):
+                    if device_id in done_events_avail_devices:
+                        done_events.append(xe.take_done_event(i, device_id))
+                    else:
+                        done_events.append(None)
+                self.worker.buffers_done_events[output_uuids[i]] = done_events
 
     def __del__(self):
         self.exec.delete()
