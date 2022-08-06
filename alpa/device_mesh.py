@@ -441,6 +441,7 @@ class MeshHostWorker:
                                 for device_id in participated_devices]
         else:
             inputs_done_events = [None for _ in participated_devices]
+        print(f"synchronize comm {ary_uuid} devices {participated_devices}")
         return participated_devices, inputs_done_events
 
     def run_resharding_send_task(self, uuid, ary_uuid):
@@ -449,7 +450,7 @@ class MeshHostWorker:
             participated_devices, inputs_done_events = (
                 self.get_devices_and_events(task.tile_specs, ary_uuid)
             )
-            
+
             input_or_output_streams = [False] * len(participated_devices)
             participated_streams = col.get_participated_streams(
                 participated_devices, input_or_output_streams, task.group_name)
@@ -466,6 +467,7 @@ class MeshHostWorker:
         if global_config.enable_overlapping:
             for device_id, stream in zip(participated_devices, participated_streams):
                 self.buffers_done_events[ary_uuid][device_id] = mark_event(stream, device_id)
+                print(f"mark event {ary_uuid} {device_id} -> {self.buffers_done_events[ary_uuid][device_id]}")
                 #TODO(hexu): will we continue to use it after sending it to other devices?
 
     def run_resharding_recv_task(self, uuid, ary_uuid, set_empty_buffer=True):
@@ -483,6 +485,7 @@ class MeshHostWorker:
             input_or_output_streams = [True] * len(participated_devices)
             participated_streams = col.get_participated_streams(
                 participated_devices, input_or_output_streams, task.group_name)
+            print(inputs_done_events, participated_streams)
             synchronize_inputs_done_events([inputs_done_events],
                                             participated_streams)
 
@@ -508,6 +511,7 @@ class MeshHostWorker:
         if global_config.enable_overlapping:
             for device_id, stream in zip(participated_devices, participated_streams):
                 self.buffers_done_events[ary_uuid][device_id] = mark_event(stream, device_id)
+                print(f"mark event {ary_uuid} {device_id} -> {self.buffers_done_events[ary_uuid][device_id]}")
 
     def send_tile(self, uuid: int, device_id: int, offset: Sequence[slice],
                   dst_rank: int, dst_gpu_idx: int, group_name: str):
