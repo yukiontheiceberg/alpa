@@ -3,7 +3,9 @@ import logging
 import os
 import time
 from typing import Optional, Sequence
+import sys
 
+from jax._src.lib import xla_extension as xe
 from jax.tree_util import tree_flatten, tree_unflatten, tree_leaves, PyTreeDef
 import numpy as np
 import ray.exceptions
@@ -455,11 +457,11 @@ class PipeshardMeshWorkerExecuable:
             buffers[local_id] = self.global_buffers[global_id]
             buffers_done_events[local_id] = self.global_buffers_done_events[global_id]
         # add preallocated buffers for gradient accumulation
-        print("input_global_uuids", input_global_uuids)
-        print("input_local_uuids", self.input_local_uuids)
-        print("buffers.keys", self.worker.buffers.keys())
-        print("buffers.keys", self.worker.buffers_done_events.keys())
-        print("output_global_uuids", output_global_uuids)
+        print("input_global_uuids", input_global_uuids, flush=True)
+        print("input_local_uuids", self.input_local_uuids, flush=True)
+        print("buffers.keys", self.worker.buffers.keys(), flush=True)
+        print("buffers.keys", self.worker.buffers_done_events.keys(), flush=True)
+        print("output_global_uuids", output_global_uuids, flush=True)
         buffers.update(self.acc_grad_buffers)
         # donate invars
         for global_id, donate in zip(input_global_uuids, self.donate_invars):
@@ -473,18 +475,25 @@ class PipeshardMeshWorkerExecuable:
         sync_func = self.worker.sync if sync_for_timer else None
 
         for instruction in self.instructions:
-            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
+            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}", flush=True)
 
 
         # Execute
         timers("overall").start(sync_func=sync_func)
+        # i = 0
         for instruction in self.instructions:
             # print(f"memory_allocated: "
             #       f"{self.worker.get_memory_allocated()/1024**3:.3f} GB  "
             #       f"max_memory_allocated: "
             #       f"{self.worker.get_max_memory_allocated()/1024**3:.3f} GB "
             #       f"next instruction: {instruction}")
-            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
+            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}", flush=True)
+            # if i==1:
+            #     exit()
+            xe.check_streams_alive(self.worker.backend)
+            # if i==1:
+            #     exit()
+            # i += 1
             if instruction.opcode == PipelineInstType.RUN:
                 timers("compute").start()
                 self.worker.run_executable(instruction.task_uuid,
