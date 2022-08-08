@@ -490,7 +490,7 @@ class PipeshardMeshWorkerExecuable:
             print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}", flush=True)
             # if i==1:
             #     exit()
-            xe.check_streams_alive(self.worker.backend)
+            # xe.check_streams_alive(self.worker.backend)
             # if i==1:
             #     exit()
             # i += 1
