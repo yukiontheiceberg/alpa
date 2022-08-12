@@ -38,7 +38,7 @@ import cupy
 
 from alpa.global_env import global_config, is_worker
 from alpa.collective.collective_group import nccl_util
-from alpa.monkey_patch import override_backend as backend
+from alpa.monkey_patch import override_get_backend
 
 ########################################
 ##### Alpa API Utilities
@@ -1260,7 +1260,8 @@ def mark_event(stream, device_id):
         event.record(stream)
         return event
     elif isinstance(stream, xe.XLACudaStream):# return se::Event
-        event = xe.CreateXLACudaEvent(backend, device_id)
+        backend = override_get_backend()
+        event = xe.create_xla_cuda_event(backend, device_id)
         xe.stream_record_event(stream, event)
         return event
     else:

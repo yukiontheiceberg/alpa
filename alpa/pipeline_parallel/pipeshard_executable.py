@@ -100,7 +100,10 @@ class PipeshardDriverExecutable:
         if global_config.eagerly_create_communicators:
             for task in self.resharding_tasks:
                 task.create_resharding_communicators()
-
+        
+        self.instruction_lists = pipeshard_config.instruction_lists
+        # self.optimize_instructions_order()
+        
         self.exec_uuid = next_mesh_executable_uuid()
         # Create a PipeshardMeshWorkerExecuable for each MeshHostWorker
         for mesh_idx, physical_mesh in enumerate(self.mesh_group):
@@ -119,6 +122,21 @@ class PipeshardDriverExecutable:
                 worker.put_executable.remote(self.exec_uuid,
                                              PipeshardMeshWorkerExecuable,
                                              *args)
+
+    def profile_instructions(self):
+        """
+            return a dictionary in which the key is worker, 
+            the value is the time cost for each instruction for this worker. 
+        """
+        self.instruction_costs = {}
+        for worker, insts in self.instruction_lists.items():
+            self.instruction_costs[worker] = []
+        pass 
+        # TODO(hexu): finish this
+
+    def optimize_instructions_order(self):
+        
+        pass
 
     ##### Compilation Related Functions #####
     def _instantiate_nccl_groups(self, device_str_groups):
@@ -487,7 +505,7 @@ class PipeshardMeshWorkerExecuable:
             #       f"max_memory_allocated: "
             #       f"{self.worker.get_max_memory_allocated()/1024**3:.3f} GB "
             #       f"next instruction: {instruction}")
-            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}", flush=True)
+            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
             # if i==1:
             #     exit()
             # xe.check_streams_alive(self.worker.backend)
