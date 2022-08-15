@@ -475,11 +475,11 @@ class PipeshardMeshWorkerExecuable:
             buffers[local_id] = self.global_buffers[global_id]
             buffers_done_events[local_id] = self.global_buffers_done_events[global_id]
         # add preallocated buffers for gradient accumulation
-        print("input_global_uuids", input_global_uuids, flush=True)
-        print("input_local_uuids", self.input_local_uuids, flush=True)
-        print("buffers.keys", self.worker.buffers.keys(), flush=True)
-        print("buffers.keys", self.worker.buffers_done_events.keys(), flush=True)
-        print("output_global_uuids", output_global_uuids, flush=True)
+        # print("input_global_uuids", input_global_uuids, flush=True)
+        # print("input_local_uuids", self.input_local_uuids, flush=True)
+        # print("buffers.keys", self.worker.buffers.keys(), flush=True)
+        # print("buffers.keys", self.worker.buffers_done_events.keys(), flush=True)
+        # print("output_global_uuids", output_global_uuids, flush=True)
         buffers.update(self.acc_grad_buffers)
         # donate invars
         for global_id, donate in zip(input_global_uuids, self.donate_invars):
@@ -493,12 +493,12 @@ class PipeshardMeshWorkerExecuable:
         sync_func = self.worker.sync if sync_for_timer else None
 
         for instruction in self.instructions:
-            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}", flush=True)
+            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
 
 
         # Execute
         timers("overall").start(sync_func=sync_func)
-        # i = 0
+        i = 0
         for instruction in self.instructions:
             # print(f"memory_allocated: "
             #       f"{self.worker.get_memory_allocated()/1024**3:.3f} GB  "
@@ -513,28 +513,37 @@ class PipeshardMeshWorkerExecuable:
             #     exit()
             # i += 1
             if instruction.opcode == PipelineInstType.RUN:
+                # self.worker.sync_all()
                 timers("compute").start()
                 self.worker.run_executable(instruction.task_uuid,
                                            instruction.input_uuids,
                                            instruction.output_uuids,
                                            **instruction.opaques["kwargs"])
                 timers("compute").suspend()
+                self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.SEND:
                 timers("resharding_send").start()
                 self.worker.run_resharding_send_task(instruction.task_uuid,
                                                      instruction.input_uuids[0])
                 timers("resharding_send").suspend()
+                self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.RECV:
                 timers("resharding_recv").start()
+                # print("recv")
                 self.worker.run_resharding_recv_task(
                     instruction.task_uuid, instruction.output_uuids[0],
                     instruction.opaques["set_empty_buffer"])
+                self.worker.sync_all()
                 # TODO(lmzheng): move this to run_resharding_recv_task
                 if instruction.opaques["allgather_uuid"] is not None:
+                    # print("allgather")
                     task_uuid = instruction.opaques["allgather_uuid"]
                     ary_uuid = instruction.output_uuids[0]
+                    # self.worker.sync_all()
+
                     self.worker.run_executable(task_uuid, [ary_uuid],
                                                [ary_uuid], False, False)
+                    # self.worker.sync_all()
                 timers("resharding_recv").suspend()
             elif instruction.opcode == PipelineInstType.BROADCAST:
                 timers("resharding_broadcast").start()
@@ -547,6 +556,16 @@ class PipeshardMeshWorkerExecuable:
                 timers("free").start()
                 self.worker.delete_buffers(instruction.input_uuids)
                 timers("free").suspend()
+                self.worker.sync_all()
+
+            # if self.instructions[2].opcode in [PipelineInstType.SEND]:#PipelineInstType.SEND
+            #     if instruction.opcode == PipelineInstType.RECV:
+            #         print(i)
+            #         if i == 1:
+            #             print("---------------------sync---------------------")
+            #             self.worker.sync_all()
+            #         i += 1
+
 
         for timer_name in [
                 "compute", "resharding_send", "resharding_recv",
