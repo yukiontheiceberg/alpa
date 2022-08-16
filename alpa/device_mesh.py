@@ -57,7 +57,7 @@ from alpa.util import (benchmark_func, list_gpu_info, OrderedSet, synchronize_on
                        update_jax_platform, is_ray_node_resource,
                        try_import_ray_worker, synchronize_inputs_done_events,
                        mark_event)
-
+# from alpa.pipeline_parallel.xla_custom_call_marker import (initialize_memory)
 ray_worker = try_import_ray_worker()
 
 if global_config.nccl_mode == "cupy":
@@ -138,6 +138,8 @@ class MeshHostWorker:
         self.local_devices = self.backend.local_devices()
         # print(self.local_devices)
         self.num_devices = len(self.local_devices)
+        
+        # initialize_memory()
 
         self.buffers = {}  # Dict[uuid -> Sequence[DeviceArray]]
         self.buffers_done_events = {} # Dict[uuid -> List[event]]

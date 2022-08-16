@@ -28,6 +28,7 @@ from alpa.pipeline_parallel.runtime_emitter import (
 from alpa.shard_parallel.auto_sharding import HloStatus
 from alpa.timer import timers
 from alpa.util import OrderedSet
+from alpa.pipeline_parallel.xla_custom_call_marker import dummy_compute_on_default_stream
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -520,20 +521,21 @@ class PipeshardMeshWorkerExecuable:
                                            instruction.output_uuids,
                                            **instruction.opaques["kwargs"])
                 timers("compute").suspend()
-                self.worker.sync_all()
+                # self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.SEND:
                 timers("resharding_send").start()
                 self.worker.run_resharding_send_task(instruction.task_uuid,
                                                      instruction.input_uuids[0])
                 timers("resharding_send").suspend()
-                self.worker.sync_all()
+                # self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.RECV:
                 timers("resharding_recv").start()
                 # print("recv")
                 self.worker.run_resharding_recv_task(
                     instruction.task_uuid, instruction.output_uuids[0],
                     instruction.opaques["set_empty_buffer"])
-                self.worker.sync_all()
+                # self.worker.sync_all()
+                # dummy_compute_on_default_stream()
                 # TODO(lmzheng): move this to run_resharding_recv_task
                 if instruction.opaques["allgather_uuid"] is not None:
                     # print("allgather")
@@ -556,7 +558,7 @@ class PipeshardMeshWorkerExecuable:
                 timers("free").start()
                 self.worker.delete_buffers(instruction.input_uuids)
                 timers("free").suspend()
-                self.worker.sync_all()
+                # self.worker.sync_all()
 
             # if self.instructions[2].opcode in [PipelineInstType.SEND]:#PipelineInstType.SEND
             #     if instruction.opcode == PipelineInstType.RECV:

@@ -19,4 +19,6 @@ PYBIND11_MODULE(xla_custom_call_marker, m) {
             return py::capsule((void *) &kernel::identity, name);
         }, "return a capsule"
     );
+    // m.def("initialize_memory", &initialize_memory);
+    m.def("dummy_compute_on_default_stream", &kernel::dummy_compute_on_default_stream);
 }
