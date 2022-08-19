@@ -1,5 +1,5 @@
 """Use huggingface/transformers interface and Alpa backend for distributed inference."""
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, FlaxOPTForCausalLM, OPTForCausalLM
 from opt_serving.model.wrapper import get_model
 import numpy as np
 
@@ -8,15 +8,9 @@ import numpy as np
 tokenizer = AutoTokenizer.from_pretrained("facebook/opt-30b", use_fast=False)
 tokenizer.add_bos_token = False
 
-generate_params = {"do_sample": False, "num_beams": 1, "num_return_sequences": 1}
+generate_params = {"do_sample": False, "num_beams": 1}
 
-# Load the model
-model = get_model(model_name="alpa/opt-350m",
-                  device="cuda",
-                  path="/home/ubuntu/opt_weights",
-                  batch_size=1,
-                  max_target_positions=512,
-                  **generate_params)
+model = FlaxOPTForCausalLM.from_pretrained("facebook/opt-125m")#.to("cuda")
 
 # Generate
 prompt = [
@@ -25,16 +19,17 @@ prompt = [
     # "Computer Science studies the area of",
     # "University of California Berkeley is a public university"
 ]
-input_ids = tokenizer(prompt, return_tensors="pt", padding="longest").input_ids.to("cuda")
+input_ids = tokenizer(prompt, return_tensors="jax", padding="longest").input_ids#.to("cuda")
 
 outputs = model.generate(input_ids=input_ids,
                          pad_token_id=tokenizer.pad_token_id,
                          max_length=64,
                          **generate_params)
-
 # Print results
+
+# outputs = model(input_ids)
 print("Output:\n" + 100 * '-')
-for i, output in enumerate(outputs):
+for i, output in enumerate(outputs.sequences):
     print("{}: {}".format(i, tokenizer.decode(output,
                                               skip_special_tokens=True)))
     print(100 * '-')

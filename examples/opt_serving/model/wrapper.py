@@ -24,6 +24,8 @@ from opt_serving.model.opt_model import (get_opt_config,
 from opt_serving.model.opt_utils import (TransformerModelConfig,
                                          jax_index_select, is_power_of_two)
 
+from examples.opt_serving.model.opt_model import get_hf_opt_config
+
 
 @dataclass
 class InferenceFuncOutput(ModelOutput):
@@ -343,10 +345,10 @@ def get_model(model_name: str,
                                 dtype=dtype,
                                 max_target_positions=max_target_positions)
         transformer_config = TransformerModelConfig(
-            H=config.decoder_embed_dim,
-            L=config.decoder_layers,
-            n_head=config.decoder_attention_heads,
-            seq_len=config.max_target_positions,
+            H=config.hidden_size,
+            L=config.num_hidden_layers,
+            n_head=config.num_attention_heads,
+            seq_len=config.max_position_embeddings,
             vocab_size=config.vocab_size)
 
         executable, params_aval = get_jax_executable(
@@ -371,16 +373,29 @@ def get_model(model_name: str,
         num_pp_stages = max(2, alpa.get_global_cluster().num_hosts)
         num_pp_stages = min(num_pp_stages,
                             alpa.get_global_cluster().num_devices)
-        config = get_opt_config(name,
-                                num_pp_stages=num_pp_stages,
-                                dtype=dtype,
-                                max_target_positions=max_target_positions)
+
+        config = get_hf_opt_config(name,
+                                   num_pp_stages=num_pp_stages,
+                                   dtype=dtype,
+                                   max_target_positions=max_target_positions)
         transformer_config = TransformerModelConfig(
-            H=config.decoder_embed_dim,
-            L=config.decoder_layers,
-            n_head=config.decoder_attention_heads,
-            seq_len=config.max_target_positions,
+            H=config.hidden_size,
+            L=config.num_hidden_layers,
+            n_head=config.num_attention_heads,
+            seq_len=config.max_position_embeddings,
             vocab_size=config.vocab_size)
+
+        # config = get_opt_config(name,
+        #                         num_pp_stages=num_pp_stages,
+        #                         dtype=dtype,
+        #                         max_target_positions=max_target_positions)
+        # transformer_config = TransformerModelConfig(
+        #     H = config.decoder_embed_dim,
+        #     L=config.decoder_layers,
+        #     n_head=config.decoder_attention_heads,
+        #     seq_len=config.max_target_positions,
+        #     vocab_size=config.vocab_size)
+
 
         executable, params_aval = get_pipeshard_executable(
             config,

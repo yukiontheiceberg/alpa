@@ -6,6 +6,9 @@ import math
 import os
 from typing import Callable, Optional, Tuple, Dict
 
+from transformers.models.opt.modeling_flax_opt import FlaxOPTForCausalLMModule
+from transformers.models.opt.modeling_flax_opt import OPTConfig as HFOPTConfig
+
 import alpa
 from alpa.device_mesh import (DistributedArray, ReplicatedDistributedArray,
                               MeshHostWorker, create_remote_array_refs)
@@ -31,6 +34,7 @@ ACT2FN = {
     "gelu_new": partial(nn.gelu, approximate=True),
 }
 
+# alpa.global_config.flax_always_use_fp16_embedding = True
 
 @flax.struct.dataclass
 class OPTModelOutput(ModelOutput):
@@ -72,6 +76,40 @@ class OPTConfig:
     num_pp_stages: int = None
     # parallelize
     mark_boundary: bool = True
+
+
+class OPTConfig2(HFOPTConfig):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        # Translate from HFConfig to our old config, for compatibility
+        self.decoder_layers = self.num_hidden_layers
+        self.max_target_positions = self.max_position_embeddings
+        self.decoder_embed_dim = self.word_embed_proj_dim
+        self.decoder_attention_heads = self.num_attention_heads
+        self.decoder_input_dim = self.hidden_size
+        self.decoder_ffn_embed_dim = self.ffn_dim
+        self.pad = self.pad_token_id
+        self.activation_fn = self.activation_function
+        self.decoder_normalize_before = self.do_layer_norm_before
+
+        # added (those not in HF config)
+        self.use_stable_embedding: bool = False
+        self.no_scale_embedding: bool = True
+        self.decoder_learned_pos: bool = True
+        self.share_decoder_input_output_embed: bool = True
+        self.num_pp_stages: int = None
+        self.mark_boundary: bool = True
+        self.dtype: any = jnp.float16
+
+        # Added by Alpa
+        if "num_pp_stages" in kwargs:
+            self.num_pp_stages = kwargs["num_pp_stages"]
+        if "mark_boundary" in kwargs:
+            self.mark_boundary = kwargs["mark_boundary"]
+        if "dtype" in kwargs:
+            self.dtype = kwargs["dtype"]
 
 
 class OPTEmbeddings(nn.Module):
@@ -477,6 +515,85 @@ class OPTForLMModule(nn.Module):
         )
 
 
+# class AlpaOPTForCasualLMModule(nn.Module):
+#     config: OPTConfig2
+#     dtype: jnp.dtype = jnp.float16
+#
+#     def setup(self):
+#         self.model = FlaxOPTForCausalLMModule(config=self.config, dtype=self.dtype)
+#
+#     def __call__(
+#         self,
+#         input_ids,
+#         position_ids,
+#         output_attentions: bool = False,
+#         output_hidden_states: bool = False,
+#         return_dict: bool = True,
+#         attention_cache=None,
+#         attention_mask=None):
+#
+#         output = self.model(
+#             input_ids,
+#             position_ids,
+#             init_cache=False,
+#             output_attentions
+#         )
+
+
+
+def get_hf_opt_config(name, **kwargs):
+    if name == "125M":
+        config = OPTConfig2(
+            max_position_embeddings=2048,
+            num_hidden_layers=12,
+            num_attention_heads=12,
+            word_embed_proj_dim=768,
+            hidden_size=768,
+            ffn_dim=768 * 4
+        )
+    elif name == "2.7B":
+        config = OPTConfig2(
+            max_position_embeddings=2048,
+            num_hidden_layers=32,
+            num_attention_heads=32,
+            word_embed_proj_dim=2560,
+            hidden_size=2560,
+            ffn_dim=2560 * 4
+        )
+    elif name == "6.7B":
+        config = OPTConfig2(
+            max_position_embeddings=2048,
+            num_hidden_layers=32,
+            num_attention_heads=32,
+            word_embed_proj_dim=4096,
+            hidden_size=4096,
+            ffn_dim=4096 * 4
+        )
+    elif name == "30B":
+        config = OPTConfig2(
+            max_position_embeddings=2048,
+            num_hidden_layers=48,
+            num_attention_heads=56,
+            word_embed_proj_dim=7168,
+            hidden_size=7168,
+            ffn_dim=7168 * 4,
+        )
+    elif name == "175B":
+        config = OPTConfig2(
+            max_position_embeddings=2048,
+            num_hidden_layers=96,
+            num_attention_heads=96,
+            word_embed_proj_dim=12288,
+            hidden_size=12288,
+            ffn_dim=12288 * 4,
+        )
+    else:
+        raise ValueError()
+
+    return config
+    # return dataclasses.replace(config, **kwargs)
+
+
 def get_opt_config(name, **kwargs):
     if name == "125M":
         config = OPTConfig(
@@ -536,11 +653,13 @@ def get_opt_config(name, **kwargs):
 
 def init_model_aval(config):
     """Initialize model with parameters with abstract values (shape-only arrays)."""
-    model = OPTForLMModule(config, dtype=config.dtype)
+    model = FlaxOPTForCausalLMModule(config, dtype=config.dtype)
+    # model = OPTForLMModule(config, dtype=config.dtype)
     rngkey = jax.core.ShapedArray((2,), jnp.uint32)
     input_ids = jax.core.ShapedArray((1, 128), jnp.int32)
     position_ids = jax.core.ShapedArray((1, 128), jnp.int32)
-    params = jax.eval_shape(model.init, rngkey, input_ids, position_ids)
+    attention_mask = jax.core.ShapedArray((1, 128), jnp.int32)
+    params = jax.eval_shape(model.init, rngkey, input_ids, attention_mask, position_ids)
     params = jax.tree_map(lambda x: jax.ShapeDtypeStruct(x.shape, config.dtype),
                           params)
     return model, params
@@ -566,7 +685,8 @@ def init_cache_aval(config, batch_size):
     return tuple(all_cache)
 
 def init_mask_aval(config, batch_size):
-    mask = jax.core.ShapedArray((batch_size, 1, 1, config.max_target_positions), dtype=np.bool)
+    # mask = jax.core.ShapedArray((batch_size, 1, 1, 64), dtype=np.bool)
+    mask = jax.core.ShapedArray((batch_size, 64), dtype=np.bool)
     return mask
 
 def init_cache_np(config, batch_size):
@@ -725,14 +845,24 @@ def get_pipeshard_executable(config,
 
         @alpa.parallelize(batch_argnums=(1,), method=method)
         def inference_step_with_cache(params, batch):
+            # output = model.apply(
+            #     params,
+            #     batch["input_ids"],
+            #     batch["position_ids"],
+            #     attention_cache=batch["cache"],
+            #     attention_mask=batch["mask"],
+            #     output_attentions=support_output_attentions,
+            #     output_hidden_states=support_output_hidden_states)
             output = model.apply(
                 params,
                 batch["input_ids"],
-                batch["position_ids"],
-                attention_cache=batch["cache"],
-                attention_mask=batch["mask"],
+                attention_mask=None,
+                position_ids=batch["position_ids"],
+                # attention_cache=batch["cache"],
+                # attention_mask=batch["mask"],
                 output_attentions=support_output_attentions,
-                output_hidden_states=support_output_hidden_states)
+                output_hidden_states=support_output_hidden_states),
+
             return output
 
         alpa.global_config.always_donate_micro_batch_vars = False
