@@ -474,7 +474,8 @@ class PipeshardMeshWorkerExecuable:
         for local_id, global_id in zip(self.input_local_uuids,
                                        input_global_uuids):
             buffers[local_id] = self.global_buffers[global_id]
-            buffers_done_events[local_id] = self.global_buffers_done_events[global_id]
+            if global_config.enable_overlapping:
+                buffers_done_events[local_id] = self.global_buffers_done_events[global_id]
         # add preallocated buffers for gradient accumulation
         # print("input_global_uuids", input_global_uuids, flush=True)
         # print("input_local_uuids", self.input_local_uuids, flush=True)
@@ -490,11 +491,12 @@ class PipeshardMeshWorkerExecuable:
                 
         # load the local env
         self.worker.buffers = buffers
-        self.worker.buffers_done_events = buffers_done_events
+        if global_config.enable_overlapping:
+            self.worker.buffers_done_events = buffers_done_events
         sync_func = self.worker.sync if sync_for_timer else None
 
-        for instruction in self.instructions:
-            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
+        # for instruction in self.instructions:
+        #     print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
 
 
         # Execute
@@ -506,7 +508,7 @@ class PipeshardMeshWorkerExecuable:
             #       f"max_memory_allocated: "
             #       f"{self.worker.get_max_memory_allocated()/1024**3:.3f} GB "
             #       f"next instruction: {instruction}")
-            print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
+            # print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
             # if i==1:
             #     exit()
             # xe.check_streams_alive(self.worker.backend)
@@ -514,27 +516,30 @@ class PipeshardMeshWorkerExecuable:
             #     exit()
             # i += 1
             if instruction.opcode == PipelineInstType.RUN:
-                # self.worker.sync_all()
+                self.worker.sync_all()
+                # dummy_compute_on_default_stream()
                 timers("compute").start()
                 self.worker.run_executable(instruction.task_uuid,
                                            instruction.input_uuids,
                                            instruction.output_uuids,
                                            **instruction.opaques["kwargs"])
                 timers("compute").suspend()
-                # self.worker.sync_all()
+                self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.SEND:
                 timers("resharding_send").start()
+                self.worker.sync_all()
                 self.worker.run_resharding_send_task(instruction.task_uuid,
                                                      instruction.input_uuids[0])
                 timers("resharding_send").suspend()
-                # self.worker.sync_all()
+                self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.RECV:
                 timers("resharding_recv").start()
                 # print("recv")
+                self.worker.sync_all()
                 self.worker.run_resharding_recv_task(
                     instruction.task_uuid, instruction.output_uuids[0],
                     instruction.opaques["set_empty_buffer"])
-                # self.worker.sync_all()
+                self.worker.sync_all()
                 # dummy_compute_on_default_stream()
                 # TODO(lmzheng): move this to run_resharding_recv_task
                 if instruction.opaques["allgather_uuid"] is not None:
@@ -555,10 +560,11 @@ class PipeshardMeshWorkerExecuable:
                      is not None else instruction.output_uuids)[0])
                 timers("resharding_broadcast").suspend()
             elif instruction.opcode == PipelineInstType.FREE:
+                self.worker.sync_all()
                 timers("free").start()
                 self.worker.delete_buffers(instruction.input_uuids)
                 timers("free").suspend()
-                # self.worker.sync_all()
+                self.worker.sync_all()
 
             # if self.instructions[2].opcode in [PipelineInstType.SEND]:#PipelineInstType.SEND
             #     if instruction.opcode == PipelineInstType.RECV:
@@ -584,6 +590,8 @@ class PipeshardMeshWorkerExecuable:
         for local_id, global_id in zip(self.output_local_uuids,
                                        output_global_uuids):
             self.global_buffers[global_id] = buffers[local_id]
+            if global_config.enable_overlapping:
+                self.global_buffers_done_events[global_id] = buffers_done_events[local_id]
         # now acc_grad_buffers are those after grad acc, before apply grad
         # with memzero. These buffers are reused in the next iteration.
         # TODO(yonghao): never donate them
@@ -592,9 +600,12 @@ class PipeshardMeshWorkerExecuable:
                 self.acc_grad_buffers[in_uuid] = buffers[out_uuid]
         # restore global environment
         self.worker.buffers = self.global_buffers
-        self.worker.buffers_done_events = self.global_buffers_done_events
         buffers.clear()
-        buffers_done_events.clear() # TODO(hexu): should I clear it here? 
+        if global_config.enable_overlapping:
+            self.worker.buffers_done_events = self.global_buffers_done_events
+            buffers_done_events.clear() # TODO(hexu): should I clear it here? 
+            # xe.reset_events()
+
 
     def profile_with_dummy_inputs(self):
         """Profile the executable with dummy inputs."""

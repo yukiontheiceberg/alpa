@@ -61,9 +61,12 @@ class MLPModel(nn.Module):
         for i in range(self.num_layers):
             x = nn.Dense(self.hidden_size, use_bias=self.use_bias)(x)
 
-            if (self.add_manual_pipeline_marker and
-                    i == self.num_layers // 2 - 1):
+            # if (self.add_manual_pipeline_marker and
+            #         i == self.num_layers // 2 - 1):
+            #     mark_pipeline_boundary()
+            if (self.add_manual_pipeline_marker and i != self.num_layers - 1):
                 mark_pipeline_boundary()
+
         return x
 
 
@@ -197,112 +200,113 @@ def bert_layer_collection_inference_step(state, batch):
     return out, loss
 
 
-class PipelineBasicTest(unittest.TestCase):
+def run_mlp(manual_pipeline_layer: bool = True,
+            use_remat: bool = False,
+            stage_option: Optional[StageOption] = None,
+            as_option: Optional[AutoShardingOption] = None,
+            do_numerical_test: bool = True):
+    init(cluster="ray")
+    method = PipeshardParallel(
+        num_micro_batches=4,
+        default_auto_sharding_option=as_option or AutoShardingOption(),
+        layer_option=ManualLayerOption(
+            remat_layer=use_remat) if manual_pipeline_layer else
+        AutoLayerOption(layer_num=2, remat_layer=use_remat),
+        stage_option=stage_option or UniformStageOption())
 
-    def setUp(self):
-        init(cluster="ray")
+    # print("jhkhkjkjasd")
+    # Init model
+    state, batch, train_step = get_mlp_train_state_and_step(
+        batch_size=128,
+        hidden_size=16,
+        num_layers=4,
+        add_manual_pipeline_marker=manual_pipeline_layer)
 
-    def tearDown(self):
-        shutdown()
+    # Compile
+    serial_train_step = train_step
+    parallel_train_step = parallelize(train_step, method=method)
+    executable = parallel_train_step.get_executable(state, batch)
+    hlo_text = executable.get_hlo_text()
+    with open("hlo.txt", "w") as f:
+        for x in hlo_text:
+            f.write(x+"\n")
+    # Run correctnesss test
+    if do_numerical_test:
+        expected_new_state = None
+        actual_new_state = None
+        for i in range(30):
+            if i > 0:
+                state = expected_new_state
+            expected_new_state, expected_val = serial_train_step(
+                state, batch)
 
-    def run_mlp(self,
-                manual_pipeline_layer: bool = True,
-                use_remat: bool = False,
-                stage_option: Optional[StageOption] = None,
-                as_option: Optional[AutoShardingOption] = None,
-                do_numerical_test: bool = True):
-        method = PipeshardParallel(
-            num_micro_batches=4,
-            default_auto_sharding_option=as_option or AutoShardingOption(),
-            layer_option=ManualLayerOption(
-                remat_layer=use_remat) if manual_pipeline_layer else
-            AutoLayerOption(layer_num=2, remat_layer=use_remat),
-            stage_option=stage_option or UniformStageOption())
+            if i > 0:
+                state = actual_new_state
+            actual_new_state, actual_val = parallel_train_step(state, batch)
 
-        # Init model
-        state, batch, train_step = get_mlp_train_state_and_step(
-            batch_size=64,
-            hidden_size=16,
-            num_layers=4,
-            add_manual_pipeline_marker=manual_pipeline_layer)
+            assert_allclose(expected_new_state.params,
+                            actual_new_state.params, 1e-3, 1e-3)
+            assert_allclose(expected_val, actual_val, 1e-3, 1e-3)
 
-        # Compile
-        serial_train_step = train_step
-        parallel_train_step = parallelize(train_step, method=method)
-        executable = parallel_train_step.get_executable(state, batch)
+    hlo_text = executable.get_hlo_text()
+    
+    return hlo_text
 
-        # Run correctnesss test
-        if do_numerical_test:
-            expected_new_state = None
-            actual_new_state = None
-            for i in range(3):
-                if i > 0:
-                    state = expected_new_state
-                expected_new_state, expected_val = serial_train_step(
-                    state, batch)
+def run_n_layer_bert(num_layers,
+                    batch_size=16,
+                    seq_len=256,
+                    hidden_size=512,
+                    num_heads=512 // 64,
+                    use_remat=False,
+                    manual_pipeline_layer=True,
+                    stage_option: Optional[StageOption] = None,
+                    as_option: Optional[AutoShardingOption] = None,
+                    do_numerical_test: bool = True):
+    method = PipeshardParallel(
+        num_micro_batches=4,
+        default_auto_sharding_option=as_option or AutoShardingOption(),
+        layer_option=ManualLayerOption(
+            remat_layer=use_remat) if manual_pipeline_layer else
+        AutoLayerOption(layer_num=num_layers, remat_layer=use_remat),
+        stage_option=stage_option or UniformStageOption())
 
-                if i > 0:
-                    state = actual_new_state
-                actual_new_state, actual_val = parallel_train_step(state, batch)
+    # Init model
+    state, batch, train_step = get_bert_layer_train_state_and_step(
+        batch_size=batch_size,
+        seq_len=seq_len,
+        num_layers=num_layers,
+        hidden_size=hidden_size,
+        num_heads=num_heads,
+        add_manual_pipeline_marker=manual_pipeline_layer)
 
-                assert_allclose(expected_new_state.params,
-                                actual_new_state.params, 1e-3, 1e-3)
-                assert_allclose(expected_val, actual_val, 1e-3, 1e-3)
+    # Compile
+    serial_train_step = train_step
+    parallel_train_step = parallelize(train_step, method=method)
+    executable = parallel_train_step.get_executable(state, batch)
 
-        hlo_text = executable.get_hlo_text()
-        return hlo_text
+    # Run correctnesss test
+    if do_numerical_test:
+        expected_new_state = None
+        actual_new_state = None
+        for i in range(5):
+            if i > 0:
+                state = expected_new_state
+            expected_new_state, expected_val = serial_train_step(
+                state, batch)
 
-    def run_n_layer_bert(self,
-                         num_layers,
-                         batch_size=16,
-                         seq_len=256,
-                         hidden_size=512,
-                         num_heads=512 // 64,
-                         use_remat=False,
-                         manual_pipeline_layer=True,
-                         stage_option: Optional[StageOption] = None,
-                         as_option: Optional[AutoShardingOption] = None,
-                         do_numerical_test: bool = True):
-        method = PipeshardParallel(
-            num_micro_batches=4,
-            default_auto_sharding_option=as_option or AutoShardingOption(),
-            layer_option=ManualLayerOption(
-                remat_layer=use_remat) if manual_pipeline_layer else
-            AutoLayerOption(layer_num=num_layers, remat_layer=use_remat),
-            stage_option=stage_option or UniformStageOption())
+            if i > 0:
+                state = actual_new_state
 
-        # Init model
-        state, batch, train_step = get_bert_layer_train_state_and_step(
-            batch_size=batch_size,
-            seq_len=seq_len,
-            num_layers=num_layers,
-            hidden_size=hidden_size,
-            num_heads=num_heads,
-            add_manual_pipeline_marker=manual_pipeline_layer)
+            actual_new_state, actual_val = parallel_train_step(state, batch)
 
-        # Compile
-        serial_train_step = train_step
-        parallel_train_step = parallelize(train_step, method=method)
-        executable = parallel_train_step.get_executable(state, batch)
+            assert_allclose(expected_new_state.params,
+                            actual_new_state.params, 1e-3, 1.5e-3)
+            assert_allclose(expected_val, actual_val, 1e-3, 1e-3)
 
-        # Run correctnesss test
-        if do_numerical_test:
-            expected_new_state = None
-            actual_new_state = None
-            for i in range(5):
-                if i > 0:
-                    state = expected_new_state
-                expected_new_state, expected_val = serial_train_step(
-                    state, batch)
+    hlo_text = executable.get_hlo_text()
+    return hlo_text
 
-                if i > 0:
-                    state = actual_new_state
-
-                actual_new_state, actual_val = parallel_train_step(state, batch)
-
-                # assert_allclose(expected_new_state.params,
-                #                 actual_new_state.params, 1e-3, 1.5e-3)
-                # assert_allclose(expected_val, actual_val, 1e-3, 1e-3)
-
-        hlo_text = executable.get_hlo_text()
-        return hlo_text
+run_mlp()
+# run_mlp()
+# run_mlp()
+# run_n_layer_bert()

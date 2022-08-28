@@ -495,10 +495,11 @@ class NormalMeshWorkerExecutable(MeshWorkerExecutable):
         # Store output buffers
         for i in range(len(output_uuids)):
             buffer_dict[output_uuids[i]] = output_bufs[i]
-            done_events_avail_devices = xe.done_events_avail_devices(
-                i, self.worker.backend.local_device_count()
-            )
             if global_config.enable_overlapping:
+                done_events_avail_devices = xe.done_events_avail_devices(
+                    i, self.worker.backend.local_device_count()
+                )
+
                 done_events = []
                 for device_id in range(self.worker.backend.local_device_count()):
                     if device_id in done_events_avail_devices:
@@ -507,7 +508,7 @@ class NormalMeshWorkerExecutable(MeshWorkerExecutable):
                         done_events.append(None)
                 self.worker.buffers_done_events[output_uuids[i]] = done_events
                 # print(f"add event {output_uuids[i]} {done_events}")
-                
+        # dummy_compute_on_default_stream()
         # Delete donated input buffers
         delete_donated_buffers(buffer_dict, input_uuids, self.donated_invars)
 
@@ -1158,11 +1159,12 @@ class AllocZeroBufferWorkerExecutable(MeshWorkerExecutable):
         timers(self.timer_name).stop(self.sync_func if sync_after else None)
         for i in range(len(output_uuids)):
             buffer_dict[output_uuids[i]] = output_bufs[i]
-            done_events_avail_devices = xe.done_events_avail_devices(
-                i, self.worker.backend.local_device_count()
-            )
             # print(f"alloc {output_uuids} into {done_events_avail_devices}")
             if global_config.enable_overlapping:
+                done_events_avail_devices = xe.done_events_avail_devices(
+                    i, self.worker.backend.local_device_count()
+                )
+
                 done_events = []
                 for device_id in range(self.worker.backend.local_device_count()):
                     if device_id in done_events_avail_devices:
@@ -1262,10 +1264,11 @@ class UtilMeshWorkerExecutable(MeshWorkerExecutable):
 
         for i in range(len(output_uuids)):
             buffer_dict[output_uuids[i]] = output_bufs[i]
-            done_events_avail_devices = xe.done_events_avail_devices(
-                i, self.worker.backend.local_device_count()
-            )
             if global_config.enable_overlapping:
+                done_events_avail_devices = xe.done_events_avail_devices(
+                    i, self.worker.backend.local_device_count()
+                )
+
                 done_events = []
                 for device_id in range(self.worker.backend.local_device_count()):
                     if device_id in done_events_avail_devices:
