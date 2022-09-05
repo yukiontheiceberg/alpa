@@ -557,11 +557,7 @@ def compile_concatenate(backend, mesh_shape, sharding_spec, batch_size,
                 xc.shape_from_pyval(np.ones(aval.shape, aval.dtype))))
     concated = xc.ops.ConcatInDim(c, operands, batch_dim)
     c = c.build(concated)
-    with XlaPassContext({
-            "done-event::enable":
-                global_config.enable_overlapping,
-    }):
-        compiled = backend.compile(c, compile_options)
+    compiled = backend.compile(c, compile_options)
     hlo_proto = compiled.hlo_modules()[0].as_serialized_hlo_module_proto()
     return hlo_proto
 
