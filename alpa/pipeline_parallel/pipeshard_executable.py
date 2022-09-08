@@ -110,6 +110,10 @@ class PipeshardDriverExecutable:
         for mesh_idx, physical_mesh in enumerate(self.mesh_group):
             mesh_grad_uuids = pipeshard_config.grad_uuids[mesh_idx]
             for worker in physical_mesh.workers:
+                # print(mesh_idx, " : ")
+                # for instruction in pipeshard_config.instruction_lists[worker]:
+                #     print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
+                # print("_"*10)
                 acc_grad_local_uuids = []
                 if len(mesh_grad_uuids) > 0:
                     acc_grad_local_uuids = mesh_grad_uuids
@@ -123,6 +127,7 @@ class PipeshardDriverExecutable:
                 worker.put_executable.remote(self.exec_uuid,
                                              PipeshardMeshWorkerExecuable,
                                              *args)
+        # exit(-1)
 
     def profile_instructions(self):
         """
@@ -516,7 +521,7 @@ class PipeshardMeshWorkerExecuable:
             #     exit()
             # i += 1
             if instruction.opcode == PipelineInstType.RUN:
-                self.worker.sync_all()
+                # self.worker.sync_all()
                 # dummy_compute_on_default_stream()
                 timers("compute").start()
                 self.worker.run_executable(instruction.task_uuid,
@@ -524,22 +529,23 @@ class PipeshardMeshWorkerExecuable:
                                            instruction.output_uuids,
                                            **instruction.opaques["kwargs"])
                 timers("compute").suspend()
-                self.worker.sync_all()
+                # self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.SEND:
                 timers("resharding_send").start()
-                self.worker.sync_all()
+                # self.worker.sync_all()
                 self.worker.run_resharding_send_task(instruction.task_uuid,
                                                      instruction.input_uuids[0])
                 timers("resharding_send").suspend()
-                self.worker.sync_all()
+                # dummy_compute_on_default_stream()
+                # self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.RECV:
                 timers("resharding_recv").start()
                 # print("recv")
-                self.worker.sync_all()
+                # self.worker.sync_all()
                 self.worker.run_resharding_recv_task(
                     instruction.task_uuid, instruction.output_uuids[0],
                     instruction.opaques["set_empty_buffer"])
-                self.worker.sync_all()
+                # self.worker.sync_all()
                 # dummy_compute_on_default_stream()
                 # TODO(lmzheng): move this to run_resharding_recv_task
                 if instruction.opaques["allgather_uuid"] is not None:
@@ -560,11 +566,11 @@ class PipeshardMeshWorkerExecuable:
                      is not None else instruction.output_uuids)[0])
                 timers("resharding_broadcast").suspend()
             elif instruction.opcode == PipelineInstType.FREE:
-                self.worker.sync_all()
+                # self.worker.sync_all()
                 timers("free").start()
-                self.worker.delete_buffers(instruction.input_uuids)
+                # self.worker.delete_buffers(instruction.input_uuids)
                 timers("free").suspend()
-                self.worker.sync_all()
+                # self.worker.sync_all()
 
             # if self.instructions[2].opcode in [PipelineInstType.SEND]:#PipelineInstType.SEND
             #     if instruction.opcode == PipelineInstType.RECV:
