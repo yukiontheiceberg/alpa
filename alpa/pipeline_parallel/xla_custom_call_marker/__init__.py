@@ -2,7 +2,7 @@
 import sys
 
 try:
-    from .build.xla_custom_call_marker import pipeline_marker, identity, dummy_compute_on_default_stream
+    from .build.xla_custom_call_marker import pipeline_marker, identity
 except ImportError as e:
     import os
     print(f"Cannot import XLA custom markers: {e}")

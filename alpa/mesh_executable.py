@@ -41,7 +41,6 @@ from alpa.util import (compile_allocate_zero_buffers,
                        get_index_select_computation, get_shard_shape,
                        get_microbatch_sharding_spec, profile_xla_executable, synchronize_inputs_done_events)
 
-from alpa.pipeline_parallel.xla_custom_call_marker import dummy_compute_on_default_stream
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -462,27 +461,10 @@ class NormalMeshWorkerExecutable(MeshWorkerExecutable):
         input_bufs = [buffer_dict[x] for x in input_uuids]
 
         if global_config.enable_overlapping:
-            # print(input_uuids)
-            # print(self.worker.buffers_done_events.items())
             input_done_events = (
                 [self.worker.buffers_done_events[x] for x in input_uuids])
             streams = xe.fetch_working_streams(self.compiled)
-
-            # dummy_compute_on_default_stream()
-            # self.worker.sync_all() #1
-            # for stream in streams: #2
-            #     xe.synchronize_stream(stream)
-            
-            # all_streams = xe.fetch_all_streams(self.compiled)
-            # for stream in all_streams: #3
-            #     xe.synchronize_stream(stream)
-            
-            # xe.synchronize_all_activities(self.compiled) #4
-            
-            # print(streams)
-            synchronize_inputs_done_events(
-                input_done_events, streams)
-            # print(f"synchronize {input_uuids}")
+            synchronize_inputs_done_events(input_done_events, streams)
         # Execute the executable
         timers(self.timer_name).start(self.sync_func if sync_before else None)
         try:
@@ -507,8 +489,6 @@ class NormalMeshWorkerExecutable(MeshWorkerExecutable):
                     else:
                         done_events.append(None)
                 self.worker.buffers_done_events[output_uuids[i]] = done_events
-                # print(f"add event {output_uuids[i]} {done_events}")
-        # dummy_compute_on_default_stream()
         # Delete donated input buffers
         delete_donated_buffers(buffer_dict, input_uuids, self.donated_invars)
 
@@ -1159,7 +1139,6 @@ class AllocZeroBufferWorkerExecutable(MeshWorkerExecutable):
         timers(self.timer_name).stop(self.sync_func if sync_after else None)
         for i in range(len(output_uuids)):
             buffer_dict[output_uuids[i]] = output_bufs[i]
-            # print(f"alloc {output_uuids} into {done_events_avail_devices}")
             if global_config.enable_overlapping:
                 done_events_avail_devices = xe.done_events_avail_devices(
                     i, self.worker.backend.local_device_count()
@@ -1172,8 +1151,7 @@ class AllocZeroBufferWorkerExecutable(MeshWorkerExecutable):
                     else:
                         done_events.append(None)
                 self.worker.buffers_done_events[output_uuids[i]] = done_events
-                # print(f"add event {output_uuids[i]} {done_events}")
-                
+
     def __del__(self):
         self.allocate_zero_buffers.delete()
 
@@ -1248,14 +1226,12 @@ class UtilMeshWorkerExecutable(MeshWorkerExecutable):
                           sync_after: bool):
         """Run the executable on the worker."""
         buffer_dict = self.worker.buffers
-        # self.worker.sync_all()
         # Get input
         input_bufs = [buffer_dict[x] for x in input_uuids]
 
         if global_config.enable_overlapping:
             inputs_done_events = [self.worker.buffers_done_events[x] for x in input_uuids]
             synchronize_inputs_done_events(inputs_done_events, xe.fetch_working_streams(self.exec))
-            # print(f"synchronize {input_uuids}")
 
         # Execute
         timers(self.timer_name).start(self.sync_func if sync_before else None)
@@ -1276,7 +1252,6 @@ class UtilMeshWorkerExecutable(MeshWorkerExecutable):
                     else:
                         done_events.append(None)
                 self.worker.buffers_done_events[output_uuids[i]] = done_events
-                # print(f"add event {output_uuids[i]} {done_events}")
 
     def __del__(self):
         self.exec.delete()

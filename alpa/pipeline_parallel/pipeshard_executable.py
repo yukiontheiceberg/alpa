@@ -3,9 +3,7 @@ import logging
 import os
 import time
 from typing import Optional, Sequence
-import sys
 
-from jax._src.lib import xla_extension as xe
 from jax.tree_util import tree_flatten, tree_unflatten, tree_leaves, PyTreeDef
 import numpy as np
 import ray.exceptions
@@ -28,7 +26,6 @@ from alpa.pipeline_parallel.runtime_emitter import (
 from alpa.shard_parallel.auto_sharding import HloStatus
 from alpa.timer import timers
 from alpa.util import OrderedSet
-from alpa.pipeline_parallel.xla_custom_call_marker import dummy_compute_on_default_stream
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -101,7 +98,7 @@ class PipeshardDriverExecutable:
         if global_config.eagerly_create_communicators:
             for task in self.resharding_tasks:
                 task.create_resharding_communicators()
-        
+
         self.instruction_lists = pipeshard_config.instruction_lists
         # self.optimize_instructions_order()
         
@@ -110,10 +107,6 @@ class PipeshardDriverExecutable:
         for mesh_idx, physical_mesh in enumerate(self.mesh_group):
             mesh_grad_uuids = pipeshard_config.grad_uuids[mesh_idx]
             for worker in physical_mesh.workers:
-                # print(mesh_idx, " : ")
-                # for instruction in pipeshard_config.instruction_lists[worker]:
-                #     print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
-                # print("_"*10)
                 acc_grad_local_uuids = []
                 if len(mesh_grad_uuids) > 0:
                     acc_grad_local_uuids = mesh_grad_uuids
@@ -127,7 +120,6 @@ class PipeshardDriverExecutable:
                 worker.put_executable.remote(self.exec_uuid,
                                              PipeshardMeshWorkerExecuable,
                                              *args)
-        # exit(-1)
 
     def profile_instructions(self):
         """
@@ -482,81 +474,48 @@ class PipeshardMeshWorkerExecuable:
             if global_config.enable_overlapping:
                 buffers_done_events[local_id] = self.global_buffers_done_events[global_id]
         # add preallocated buffers for gradient accumulation
-        # print("input_global_uuids", input_global_uuids, flush=True)
-        # print("input_local_uuids", self.input_local_uuids, flush=True)
-        # print("buffers.keys", self.worker.buffers.keys(), flush=True)
-        # print("buffers.keys", self.worker.buffers_done_events.keys(), flush=True)
-        # print("output_global_uuids", output_global_uuids, flush=True)
         buffers.update(self.acc_grad_buffers)
         # donate invars
         for global_id, donate in zip(input_global_uuids, self.donate_invars):
             if donate:
-                # print("delete global_id: ", global_id)
                 self.worker.delete_buffers(global_id)
-                
         # load the local env
         self.worker.buffers = buffers
         if global_config.enable_overlapping:
             self.worker.buffers_done_events = buffers_done_events
         sync_func = self.worker.sync if sync_for_timer else None
 
-        # for instruction in self.instructions:
-        #     print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
-
-
         # Execute
         timers("overall").start(sync_func=sync_func)
-        i = 0
         for instruction in self.instructions:
             # print(f"memory_allocated: "
             #       f"{self.worker.get_memory_allocated()/1024**3:.3f} GB  "
             #       f"max_memory_allocated: "
             #       f"{self.worker.get_max_memory_allocated()/1024**3:.3f} GB "
             #       f"next instruction: {instruction}")
-            # print(f"next instruction: {instruction}, inputs {instruction.input_uuids}, outputs {instruction.output_uuids}")
-            # if i==1:
-            #     exit()
-            # xe.check_streams_alive(self.worker.backend)
-            # if i==1:
-            #     exit()
-            # i += 1
             if instruction.opcode == PipelineInstType.RUN:
-                # self.worker.sync_all()
-                # dummy_compute_on_default_stream()
                 timers("compute").start()
                 self.worker.run_executable(instruction.task_uuid,
                                            instruction.input_uuids,
                                            instruction.output_uuids,
                                            **instruction.opaques["kwargs"])
                 timers("compute").suspend()
-                # self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.SEND:
                 timers("resharding_send").start()
-                # self.worker.sync_all()
                 self.worker.run_resharding_send_task(instruction.task_uuid,
                                                      instruction.input_uuids[0])
                 timers("resharding_send").suspend()
-                # dummy_compute_on_default_stream()
-                # self.worker.sync_all()
             elif instruction.opcode == PipelineInstType.RECV:
                 timers("resharding_recv").start()
-                # print("recv")
-                # self.worker.sync_all()
                 self.worker.run_resharding_recv_task(
                     instruction.task_uuid, instruction.output_uuids[0],
                     instruction.opaques["set_empty_buffer"])
-                # self.worker.sync_all()
-                # dummy_compute_on_default_stream()
                 # TODO(lmzheng): move this to run_resharding_recv_task
                 if instruction.opaques["allgather_uuid"] is not None:
-                    # print("allgather")
                     task_uuid = instruction.opaques["allgather_uuid"]
                     ary_uuid = instruction.output_uuids[0]
-                    # self.worker.sync_all()
-
                     self.worker.run_executable(task_uuid, [ary_uuid],
                                                [ary_uuid], False, False)
-                    # self.worker.sync_all()
                 timers("resharding_recv").suspend()
             elif instruction.opcode == PipelineInstType.BROADCAST:
                 timers("resharding_broadcast").start()
@@ -566,20 +525,10 @@ class PipeshardMeshWorkerExecuable:
                      is not None else instruction.output_uuids)[0])
                 timers("resharding_broadcast").suspend()
             elif instruction.opcode == PipelineInstType.FREE:
-                # self.worker.sync_all()
                 timers("free").start()
+                # FIXME: uncomment this after overlapped send is safe
                 # self.worker.delete_buffers(instruction.input_uuids)
                 timers("free").suspend()
-                # self.worker.sync_all()
-
-            # if self.instructions[2].opcode in [PipelineInstType.SEND]:#PipelineInstType.SEND
-            #     if instruction.opcode == PipelineInstType.RECV:
-            #         print(i)
-            #         if i == 1:
-            #             print("---------------------sync---------------------")
-            #             self.worker.sync_all()
-            #         i += 1
-
 
         for timer_name in [
                 "compute", "resharding_send", "resharding_recv",
@@ -609,8 +558,7 @@ class PipeshardMeshWorkerExecuable:
         buffers.clear()
         if global_config.enable_overlapping:
             self.worker.buffers_done_events = self.global_buffers_done_events
-            buffers_done_events.clear() # TODO(hexu): should I clear it here? 
-            # xe.reset_events()
+            buffers_done_events.clear() # TODO(hexu): should I clear it here?
 
 
     def profile_with_dummy_inputs(self):

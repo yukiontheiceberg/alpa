@@ -11,7 +11,6 @@ from collections import OrderedDict
 from functools import partial, partialmethod
 import threading
 from typing import Iterable, Sequence, Any, Union
-from urllib.request import UnknownHandler
 from warnings import warn
 
 import jax

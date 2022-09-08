@@ -459,7 +459,6 @@ def run_backend_compilation(backend: xe.Client,
                 True,
             "done-event::enable":
                 global_config.enable_overlapping,
-            # TODO(hexu): do I use it in a right way?
     }):
         compiled = backend.compile(xla_computation, compile_options)
 
