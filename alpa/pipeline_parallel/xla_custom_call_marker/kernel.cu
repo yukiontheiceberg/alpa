@@ -16,4 +16,26 @@ void identity(cudaStream_t stream, void **buffers, const char *opaque, size_t op
     }
 }
 
+__global__ void kernel(float *x, int n)
+{
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    for (int i = tid; i < n; i += blockDim.x * gridDim.x) {
+        x[i] = sqrt(pow(3.14159,i));
+    }
+}
+
+void dummy_compute_on_default_stream(int device_id) {
+    if (device_id == -1) {
+        int n_devices;
+        cudaGetDeviceCount(&n_devices);
+        for (int i = 0; i < n_devices; ++i) {
+            cudaSetDevice(i);
+            kernel<<<1,1>>>(0, 0);
+        }
+        return;
+    }
+    cudaSetDevice(device_id);
+    kernel<<<1,1>>>(0, 0);
+}
+
 };  // end namespace kernel

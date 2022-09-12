@@ -526,8 +526,7 @@ class PipeshardMeshWorkerExecuable:
                 timers("resharding_broadcast").suspend()
             elif instruction.opcode == PipelineInstType.FREE:
                 timers("free").start()
-                # FIXME: uncomment this after overlapped send is safe
-                # self.worker.delete_buffers(instruction.input_uuids)
+                self.worker.delete_buffers(instruction.input_uuids)
                 timers("free").suspend()
 
         for timer_name in [
