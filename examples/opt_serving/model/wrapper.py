@@ -343,6 +343,8 @@ def get_model(model_name: str,
             num_pp_stages = max(2, alpa.get_global_cluster().num_hosts)
             num_pp_stages = min(num_pp_stages,
                                 alpa.get_global_cluster().num_devices)
+            while config.decoder_layers % num_pp_stages != 0:
+              num_pp_stages -= 1
         config = get_opt_config(name,
                                 num_pp_stages=num_pp_stages,
                                 dtype=dtype,
