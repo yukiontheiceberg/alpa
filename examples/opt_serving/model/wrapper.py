@@ -1,5 +1,6 @@
 """Wrap models to make them compatible with huggingface's generator API."""
 from collections import defaultdict
+import math
 import os
 import time
 from typing import Sequence, Any, Optional
@@ -347,8 +348,7 @@ def get_model(model_name: str,
                                 num_pp_stages=num_pp_stages,
                                 dtype=dtype,
                                 max_target_positions=max_target_positions)
-            while config.decoder_layers % num_pp_stages != 0:
-              num_pp_stages -= 1
+            num_pp_stages = math.gcd(config.decoder_layers, alpa.get_global_cluster().num_devices)
         config = get_opt_config(name,
                                 num_pp_stages=num_pp_stages,
                                 dtype=dtype,
